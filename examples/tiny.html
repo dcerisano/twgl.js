@@ -38,18 +38,11 @@
           width: 100vw;
           height: 100vh;
       }
-      #b {
-        position: absolute;
-        top: 10px;
-        width: 100%;
-        text-align: center;
-        z-index: 2;
-      }
+
     </style>
   </head>
   <body>
     <canvas id="c"></canvas>
-    <div id="b"><a href="http://twgljs.org">twgl.js</a> - tiny</div>
   </body>
   <script id="vs" type="notjs">
 attribute vec4 position;
@@ -59,21 +52,47 @@ void main() {
 }
   </script>
   <script id="fs" type="notjs">
-precision mediump float;
+precision highp float;
 
-uniform vec2 resolution;
-uniform float time;
+uniform vec2 canvas_resolution;
+uniform vec2 texture_resolution;
+uniform sampler2D tex;
 
-void main() {
-  vec2 uv = gl_FragCoord.xy / resolution;
-  float color = 0.0;
-  // lifted from glslsandbox.com
-  color += sin( uv.x * cos( time / 3.0 ) * 60.0 ) + cos( uv.y * cos( time / 2.80 ) * 10.0 );
-  color += sin( uv.y * sin( time / 2.0 ) * 40.0 ) + cos( uv.x * sin( time / 1.70 ) * 40.0 );
-  color += sin( uv.x * sin( time / 1.0 ) * 10.0 ) + sin( uv.y * sin( time / 3.50 ) * 80.0 );
-  color *= sin( time / 10.0 ) * 0.5;
-
-  gl_FragColor = vec4( vec3( color * 0.5, sin( color + time / 2.5 ) * 0.75, color ), 1.0 );
+void main(){
+    float twidth   = texture_resolution.x; // Texture width
+    float theight  = texture_resolution.y; // Texture height
+    float cwidth   = canvas_resolution.x;  // Canvas  width
+    float cheight  = canvas_resolution.y;  // Canvas  height
+    float x        = gl_FragCoord.x;       // Canvas  x
+    float y        = gl_FragCoord.y;       // Canvas  y
+    float size     = 0.0;                  // Cell    size
+    
+    //Scale (preserving aspect ratio)
+   	float gridWidth  = cwidth/twidth;
+	float gridHeight = cheight/theight; 
+    
+    //Fit
+ 	if (gridWidth> gridHeight)
+		size = gridHeight;
+	else
+		size = gridWidth;
+    
+    //Center
+	float xoff = (cwidth-twidth*size)*0.5;	   
+	float yoff = (cheight-theight*size)*0.5;
+    
+    //Render dot matrix, scaled to fit and centered with aspect ratio preserved
+    if(x>xoff && y>yoff && x<xoff+twidth*size && y<yoff+theight*size){
+        vec3  col      = texture2D(tex, vec2((x-xoff)/(twidth*size),1.0-(y-yoff)/(theight*size))).rgb;
+        float halftone = 1.0; // = max(0.1, dot(col, vec3(0.2125, 0.7154, 0.0721)))*5.0;
+	    vec2  center   = floor((vec2(x-xoff, y-yoff))/size)*size+size*0.5;
+    	float dist     = distance(center, vec2(x-xoff, y-yoff))/(size*0.4);
+    	float alpha    = smoothstep(1.0, 0.95, dist/halftone);
+      	gl_FragColor.rgb  = col.rgb*alpha;
+     	gl_FragColor.a    = 1.0;
+    }
+    else
+        gl_FragColor      = vec4(0, 0, 0, 1);
 }
   </script>
   <script src="../dist/4.x/twgl.min.js"></script>
@@ -83,17 +102,35 @@ void main() {
     const programInfo = twgl.createProgramInfo(gl, ["vs", "fs"]);
 
     const arrays = {
-      position: [-1, -1, 0, 1, -1, 0, -1, 1, 0, -1, 1, 0, 1, -1, 0, 1, 1, 0],
+      position: [ -1, 1, 0,   1, -1, 0,   1, 1, 0, -1, -1, 0,   1, -1, 0,   -1, 1, 0]
     };
     const bufferInfo = twgl.createBufferInfoFromArrays(gl, arrays);
 
+    const tex1 = twgl.createTexture(gl, {
+    	width: 4,
+    	height: 2,
+        min: gl.NEAREST,
+        mag: gl.NEAREST,
+        src: [
+          10, 10, 10, 255,
+          0,   192, 192, 255,
+          192, 192, 0,   255,
+          255, 0,   255, 255,
+          255, 255, 255, 255,
+          0,   192, 192, 255,
+          192, 192, 143, 255,
+          255, 255, 255, 255
+        ]
+      });
+    
     function render(time) {
       twgl.resizeCanvasToDisplaySize(gl.canvas);
       gl.viewport(0, 0, gl.canvas.width, gl.canvas.height);
 
       const uniforms = {
-        time: time * 0.001,
-        resolution: [gl.canvas.width, gl.canvas.height],
+    	       canvas_resolution:  [gl.canvas.width, gl.canvas.height],
+    	       texture_resolution: [4, 2],
+    	       tex: tex1
       };
 
       gl.useProgram(programInfo.program);
